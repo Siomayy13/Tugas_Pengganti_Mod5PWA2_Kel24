@@ -17,7 +17,7 @@ class FavoriteService {
   async getFavorites(userIdentifier) {
     if (IS_SUPABASE) {
       const data = await apiClient.get(
-        `/rest/v1/favorites?user_id=eq.${userIdentifier}&select=product_id,created_at,products(*)`,
+        `/favorites?user_id=eq.${userIdentifier}&select=product_id,created_at,products(*)`,
       )
       const list = Array.isArray(data)
         ? data.map((fav) => {
@@ -51,19 +51,19 @@ class FavoriteService {
 
       // Check if already favorited
       const existing = await apiClient.get(
-        `/rest/v1/favorites?product_id=eq.${targetId}&user_id=eq.${userId}&select=*`,
+        `/favorites?product_id=eq.${targetId}&user_id=eq.${userId}&select=*`,
       )
 
       if (Array.isArray(existing) && existing.length > 0) {
         // Remove from favorites
         await apiClient.delete(
-          `/rest/v1/favorites?product_id=eq.${targetId}&user_id=eq.${userId}`,
+          `/favorites?product_id=eq.${targetId}&user_id=eq.${userId}`,
         )
         return { success: true, data: { is_favorited: false } }
       } else {
         // Add to favorites
         await apiClient.post(
-          '/rest/v1/favorites',
+          '/favorites',
           { product_id: targetId, user_id: userId },
           { headers: { Prefer: 'return=minimal' } },
         )

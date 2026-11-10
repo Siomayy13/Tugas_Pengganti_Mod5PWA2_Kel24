@@ -7,7 +7,10 @@
  */
 export const formatPrice = (price) => {
   const num = Number(price)
-  if (Number.isNaN(num)) return '$0'
+  if (Number.isNaN(num)) return 'Rp 0'
+  if (num >= 100000) {
+    return `Rp ${num.toLocaleString('id-ID')}`
+  }
   return `$${num.toLocaleString()}`
 }
 

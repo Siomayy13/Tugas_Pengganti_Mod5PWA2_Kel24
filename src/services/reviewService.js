@@ -12,7 +12,7 @@ class ReviewService {
   async getReviews(gunId) {
     if (IS_SUPABASE) {
       const data = await apiClient.get(
-        `/rest/v1/reviews?product_id=eq.${gunId}&select=*&order=created_at.desc`,
+        `/reviews?product_id=eq.${gunId}&select=*&order=created_at.desc`,
       )
       const list = Array.isArray(data)
         ? data.map((r) => ({
@@ -45,7 +45,7 @@ class ReviewService {
         comment: reviewData.comment || '',
       }
 
-      const res = await apiClient.post('/rest/v1/reviews', payload, {
+      const res = await apiClient.post('/reviews', payload, {
         headers: { Prefer: 'return=representation' },
       })
       const created = Array.isArray(res) ? res[0] : res
@@ -61,7 +61,7 @@ class ReviewService {
   async updateReview(reviewId, reviewData) {
     if (IS_SUPABASE) {
       const res = await apiClient.patch(
-        `/rest/v1/reviews?id=eq.${reviewId}`,
+        `/reviews?id=eq.${reviewId}`,
         {
           rating: Number(reviewData.rating),
           comment: reviewData.comment,
@@ -71,7 +71,7 @@ class ReviewService {
       return { success: true, data: Array.isArray(res) ? res[0] : res }
     }
 
-    return apiClient.put(`/api/v1/reviews/${reviewId}`, reviewData)
+    return apiClient.put(`/api/v1/recipes/${reviewId}`, reviewData)
   }
 
   /**
@@ -79,7 +79,7 @@ class ReviewService {
    */
   async deleteReview(reviewId) {
     if (IS_SUPABASE) {
-      await apiClient.delete(`/rest/v1/reviews?id=eq.${reviewId}`)
+      await apiClient.delete(`/reviews?id=eq.${reviewId}`)
       return { success: true }
     }
 

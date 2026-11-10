@@ -4,12 +4,18 @@ import { withCache, invalidateCacheByPrefix } from '../utils/queryCache'
 // ---------------------------------------------------------------------------
 // normalizeProduct — standardizes product shape whether received from Supabase
 // (public.products) or from the university API (/api/v1/recipes).
-//
-// Fungsi ini memastikan format data konsisten di seluruh aplikasi meskipun
-// sumber data berbeda (Supabase vs REST API).
 // ---------------------------------------------------------------------------
 export const normalizeProduct = (item) => {
   if (!item) return null
+
+  // Tentukan icon senjata default berdasarkan tipenya jika image_url NULL
+  const typeLower = (item.type || item.category || '').toLowerCase()
+  const defaultImage =
+    typeLower.includes('rifle') ? '/guns/rifle.svg'
+    : typeLower.includes('shotgun') ? '/guns/shotgun.svg'
+    : '/guns/pistol.svg'
+
+  const resolvedImage = item.image_url || item.image || defaultImage
 
   // Resolve specifications from Supabase `specs` (text array) or API `ingredients`
   let specsList = []
@@ -51,41 +57,22 @@ export const normalizeProduct = (item) => {
     caliber: item.caliber || 'Standard',
     price: Number(item.price ?? item.cook_time ?? 0),
     description: item.description || '',
-    image_url: item.image_url || item.image || '/guns/pistol.svg',
-    image: item.image_url || item.image || '/guns/pistol.svg',
+    image_url: resolvedImage,
+    image: resolvedImage,
     ingredients: specsList,
     steps: stepsList,
   }
 }
 
 // ---------------------------------------------------------------------------
-// GunService — wraps backend CRUD endpoints dengan Query Caching.
-//
-// QUERY CACHING diterapkan pada:
-//   - getGuns()    → cache key: "guns-{params}"
-//   - getGunById() → cache key: "gun-{id}"
-//
-// Setelah mutasi (create/update/delete), cache produk dibersihkan agar data
-// yang ditampilkan selalu sinkron dengan server.
-//
-// Mendukung Supabase PostgREST (/rest/v1/products) dan
-// standard REST API (/api/v1/recipes).
+// GunService — CRUD endpoints dengan Query Caching.
 // ---------------------------------------------------------------------------
 class GunService {
   /**
-   * Fetch a paginated, filterable list of products.
-   *
-   * QUERY CACHING:
-   * Key cache dibentuk dari kombinasi semua parameter (search, category, page,
-   * limit, sort). Ini memastikan tiap kombinasi filter disimpan sebagai cache
-   * terpisah sehingga navigasi antar halaman / filter lebih responsif.
-   *
-   * @param {Object} params  — { search, category, page, limit, sort_by, order }
-   * @returns {Promise<{ success: boolean, data: Array, pagination: Object }>}
+   * Fetch product list from Supabase (atau fallback API).
    */
   async getGuns(params = {}) {
     if (IS_SUPABASE) {
-      // Buat cache key unik berdasarkan seluruh parameter
       const cacheKey = `guns-${JSON.stringify(params)}`
 
       return withCache(cacheKey, async () => {
@@ -103,40 +90,28 @@ class GunService {
           const order = params.order === 'desc' ? 'desc' : 'asc'
           queryParts.push(`order=${encodeURIComponent(params.sort_by)}.${order}`)
         } else {
-          queryParts.push('order=created_at.desc')
+          // Default sorting: gunakan id.asc karena tabel products memiliki kolom id
+          queryParts.push('order=id.asc')
         }
 
-        // Paginasi server-side: Supabase mendukung offset/limit
-        // Hitung offset dari halaman dan jumlah item per halaman
-        const page = params.page || 1
-        const limit = params.limit || 6
-        const offset = (page - 1) * limit
-        queryParts.push(`limit=${limit}`)
-        queryParts.push(`offset=${offset}`)
+        if (params.limit) {
+          queryParts.push(`limit=${params.limit}`)
+        }
+        if (params.offset !== undefined) {
+          queryParts.push(`offset=${params.offset}`)
+        }
 
         const queryString = queryParts.join('&')
-
-        // Supabase membutuhkan header Prefer: count=exact untuk mendapatkan total count
-        const response = await apiClient.get(`/products?${queryString}`, {
-          headers: {
-            Prefer: 'count=exact',
-          },
-        })
-
-        // apiClient sudah me-unwrap response.data, jadi `response` adalah array langsung.
-        // Total count dikirim oleh Supabase via header Content-Range, tapi karena
-        // interceptor kita unwrap ke response.data, kita gunakan estimasi dari slice.
+        const response = await apiClient.get(`/products?${queryString}`)
         const list = Array.isArray(response) ? response.map(normalizeProduct) : []
 
         return {
           success: true,
           data: list,
           pagination: {
-            page,
-            limit,
-            // Jika data yang dikembalikan kurang dari limit, berarti ini halaman terakhir
-            hasMore: list.length === limit,
-            total: null, // Total count membutuhkan perubahan pada interceptor Axios
+            total: list.length,
+            page: params.page || 1,
+            limit: params.limit || 50,
           },
         }
       })
@@ -150,11 +125,7 @@ class GunService {
   }
 
   /**
-   * Fetch a single product by ID.
-   *
-   * QUERY CACHING:
-   * Data detail produk jarang berubah, sehingga aman di-cache lebih lama.
-   * Cache key: "gun-{id}".
+   * Fetch single product by ID.
    */
   async getGunById(id) {
     if (IS_SUPABASE) {
@@ -172,10 +143,7 @@ class GunService {
   }
 
   /**
-   * Create a new product.
-   *
-   * Setelah berhasil create, invalidate cache "guns-*" agar catalog
-   * menampilkan data terbaru dari server.
+   * Create product.
    */
   async createGun(data) {
     if (IS_SUPABASE) {
@@ -187,8 +155,8 @@ class GunService {
 
       const payload = {
         name: data.name,
-        type: data.type || (data.category === 'minuman' ? 'Rifle' : 'Pistol'),
-        caliber: data.caliber || '9mm',
+        type: data.type || (data.category === 'minuman' ? 'Rifle' : 'Handgun'),
+        caliber: data.caliber || '9 mm',
         price: Number(data.price ?? data.cook_time ?? 0),
         description: data.description || '',
         specs: specsArray,
@@ -200,18 +168,14 @@ class GunService {
       })
       const created = Array.isArray(res) ? res[0] : res
 
-      // Bersihkan semua cache produk agar catalog terupdate
       invalidateCacheByPrefix('guns-')
-
       return { success: true, data: normalizeProduct(created) }
     }
     return apiClient.post('/api/v1/recipes', data)
   }
 
   /**
-   * Update existing product.
-   *
-   * Setelah update, invalidate cache spesifik produk dan daftar catalog.
+   * Update product.
    */
   async updateGun(id, data) {
     if (IS_SUPABASE) {
@@ -221,9 +185,7 @@ class GunService {
         ? data.specs
         : undefined
 
-      const payload = {
-        updated_at: new Date().toISOString(),
-      }
+      const payload = {}
       if (data.name !== undefined) payload.name = data.name
       if (data.type !== undefined) payload.type = data.type
       if (data.caliber !== undefined) payload.caliber = data.caliber
@@ -239,38 +201,21 @@ class GunService {
       })
       const updated = Array.isArray(res) ? res[0] : res
 
-      // Bersihkan cache produk yang diupdate dan daftar catalog
       invalidateCacheByPrefix('guns-')
       invalidateCacheByPrefix(`gun-${id}`)
-
       return { success: true, data: normalizeProduct(updated) }
     }
     return apiClient.put(`/api/v1/recipes/${id}`, data)
   }
 
   /**
-   * Partial update (PATCH).
-   */
-  async patchGun(id, data) {
-    if (IS_SUPABASE) {
-      return this.updateGun(id, data)
-    }
-    return apiClient.patch(`/api/v1/recipes/${id}`, data)
-  }
-
-  /**
    * Delete product.
-   *
-   * Setelah delete, invalidate seluruh cache produk.
    */
   async deleteGun(id) {
     if (IS_SUPABASE) {
       await apiClient.delete(`/products?id=eq.${id}`)
-
-      // Bersihkan cache agar data terbaru ditampilkan
       invalidateCacheByPrefix('guns-')
       invalidateCacheByPrefix(`gun-${id}`)
-
       return { success: true }
     }
     return apiClient.delete(`/api/v1/recipes/${id}`)
