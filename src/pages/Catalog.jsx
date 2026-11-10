@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { RefreshCw, Plus, Loader, AlertCircle, PackageOpen } from 'lucide-react'
 import { useGuns } from '../hooks/useGuns'
 import GUNS_LOCAL from '../data/guns'
 import GunCard from '../components/gun/GunCard'
 import GunDetail from '../components/gun/GunDetail'
 import AdvancedFilter from '../components/common/AdvancedFilter'
+import Pagination from '../components/common/Pagination'
 import ConfirmModal from '../components/modals/ConfirmModal'
 import gunService from '../services/gunService'
 import {
@@ -14,48 +15,131 @@ import {
   extractCategories,
 } from '../utils/helpers'
 
+// ---------------------------------------------------------------------------
+// Catalog — Halaman utama daftar produk.
+//
+// FITUR BARU YANG DITAMBAHKAN:
+//
+// 1. PAGINASI (Server-side):
+//    Data diambil per halaman dari Supabase menggunakan `offset` + `limit`.
+//    State `currentPage` dikontrol di sini dan dikirim ke useGuns() sebagai
+//    parameter, yang diteruskan ke gunService.getGuns() → Supabase query.
+//
+//    Alur data: currentPage → useGuns({page, limit}) → gunService → Supabase
+//    Hasil    : guns (data halaman ini), pagination.hasMore (ada halaman lagi?)
+//
+// 2. QUERY CACHING:
+//    useGuns() menggunakan withCache() dari queryCache.js.
+//    Navigasi kembali ke halaman yang sama tidak menyebabkan request baru
+//    selama cache belum kadaluarsa (60 detik).
+//
+// 3. SHARE LINK (Deep Linking):
+//    URL ?gunId={id} dibaca saat mount untuk langsung membuka detail produk.
+//    Ini memungkinkan pengguna lain membuka link yang dibagikan dan langsung
+//    melihat produk yang dimaksud.
+//
+// 4. LAZY LOADING:
+//    Setiap <img> di GunCard menggunakan loading="lazy" (browser-native).
+// ---------------------------------------------------------------------------
+
+/** Jumlah produk per halaman */
+const ITEMS_PER_PAGE = 6
+
 /**
- * Catalog page — the main product listing.
- *
- * Data source priority:
- *   1. Live API via useGuns()
- *   2. Local static array (GUNS_LOCAL) when the API is unreachable
- *
- * Features: search, category filter, sort, CRUD actions, detail modal.
+ * @param {Object}   props
+ * @param {Function} [props.onNavigate] — fungsi navigasi lintas halaman
  */
 export default function Catalog({ onNavigate }) {
-  // ---- API data ----
-  const { guns: apiGuns, loading, error, refetch } = useGuns({ limit: 50 })
-  const [useLocal, setUseLocal] = useState(false)
+  // ---- Paginasi ----
+  // currentPage adalah state utama paginasi.
+  // Setiap kali berubah, useGuns() otomatis re-fetch data halaman baru.
+  const [currentPage, setCurrentPage] = useState(1)
 
-  // Decide data source
-  const rawGuns = useMemo(() => {
-    if (useLocal || (error && apiGuns.length === 0)) {
-      // Enrich local data with synthetic ids so FavoriteButton and detail work
-      return GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
-    }
-    return apiGuns
-  }, [apiGuns, error, useLocal])
-
-  // ---- filters / sort ----
+  // ---- Filter & Sort ----
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [sortKey, setSortKey] = useState('name')
   const [sortOrder, setSortOrder] = useState('asc')
 
-  const categories = useMemo(() => extractCategories(rawGuns), [rawGuns])
+  // ---- API Data ----
+  // useGuns dipanggil dengan parameter page + limit untuk server-side pagination.
+  // Setiap kombinasi params unik akan memiliki cache tersendiri.
+  const { guns: apiGuns, loading, error, pagination, refetch } = useGuns({
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+    search: search || undefined,
+    category: activeCategory !== 'All' ? activeCategory : undefined,
+    sort_by: sortKey,
+    order: sortOrder,
+  })
 
+  const [useLocal, setUseLocal] = useState(false)
+
+  // Tentukan sumber data: API atau lokal (fallback)
+  // Fallback ke GUNS_LOCAL jika:
+  //   1. Pengguna klik "View Local Catalog" (useLocal)
+  //   2. Ada error API dan API tidak mengembalikan data
+  //   3. API berhasil tapi mengembalikan data kosong (tabel Supabase kosong / RLS blocking)
+  const rawGuns = useMemo(() => {
+    const apiIsEmpty = !loading && apiGuns.length === 0
+
+    if (useLocal || (error && apiIsEmpty) || (!error && apiIsEmpty && !loading)) {
+      return GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
+    }
+    return apiGuns
+  }, [apiGuns, error, useLocal, loading])
+
+  // Client-side filtering hanya untuk data lokal (API sudah filter server-side)
   const filteredGuns = useMemo(() => {
+    if (!useLocal && !error) {
+      // Data dari API sudah difilter dan diurutkan oleh Supabase
+      return rawGuns
+    }
+    // Fallback lokal: filter dan urutkan di sisi klien
     let result = rawGuns.filter(
       (g) => matchesSearch(g, search) && matchesCategory(g, activeCategory),
     )
     return sortItems(result, sortKey, sortOrder)
-  }, [rawGuns, search, activeCategory, sortKey, sortOrder])
+  }, [rawGuns, search, activeCategory, sortKey, sortOrder, useLocal, error])
 
-  // ---- detail view ----
+  const categories = useMemo(() => extractCategories(rawGuns), [rawGuns])
+
+  // ---- Detail View ----
   const [selectedGun, setSelectedGun] = useState(null)
 
-  // ---- delete ----
+  // ---- Deep Link via URL ?gunId=... ----
+  // Saat komponen mount, cek apakah URL mengandung ?gunId=...
+  // Jika ya, fetch produk tersebut dan tampilkan langsung di detail view.
+  // Ini mendukung fitur Share Link — penerima link langsung melihat produk.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const gunId = params.get('gunId')
+    if (!gunId) return
+
+    // Fetch produk berdasarkan ID dari URL
+    gunService.getGunById(gunId)
+      .then((res) => {
+        if (res.success && res.data) {
+          setSelectedGun(res.data)
+        }
+      })
+      .catch(() => {
+        // ID tidak ditemukan — tampilkan catalog normal saja
+      })
+
+    // Bersihkan query string dari URL agar tidak terulang saat refresh filter
+    const cleanUrl = window.location.pathname
+    window.history.replaceState({}, '', cleanUrl)
+  }, []) // Hanya run sekali saat mount
+
+  // ---- Reset halaman saat filter/sort berubah ----
+  // Ketika pengguna mengubah filter, kita kembali ke halaman 1
+  // karena hasil pencarian baru mungkin memiliki jumlah halaman berbeda.
+  const handleSearch = (val) => { setSearch(val); setCurrentPage(1) }
+  const handleCategory = (val) => { setActiveCategory(val); setCurrentPage(1) }
+  const handleSort = ({ key, order }) => { setSortKey(key); setSortOrder(order); setCurrentPage(1) }
+
+  // ---- Delete ----
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -66,6 +150,7 @@ export default function Catalog({ onNavigate }) {
       setDeleting(true)
       setDeleteError('')
       await gunService.deleteGun(deleteTarget.id)
+      // deleteGun() otomatis invalidate cache, refetch akan ambil data segar
       setDeleteTarget(null)
       refetch()
     } catch (err) {
@@ -75,7 +160,7 @@ export default function Catalog({ onNavigate }) {
     }
   }
 
-  // ---- If viewing a single product detail ----
+  // ---- Jika sedang melihat detail produk ----
   if (selectedGun) {
     return (
       <GunDetail
@@ -87,7 +172,7 @@ export default function Catalog({ onNavigate }) {
     )
   }
 
-  // ---- Main catalog view ----
+  // ---- Tampilan utama catalog ----
   return (
     <>
       <section className="masthead">
@@ -103,7 +188,7 @@ export default function Catalog({ onNavigate }) {
           <h2>Current stock</h2>
           <div className="list-head-right">
             <span className="count">
-              {filteredGuns.length} piece{filteredGuns.length !== 1 ? 's' : ''}
+              {filteredGuns.length} piece{filteredGuns.length !== 1 ? 's' : ''} (halaman {currentPage})
             </span>
             {onNavigate && (
               <button
@@ -117,26 +202,31 @@ export default function Catalog({ onNavigate }) {
           </div>
         </div>
 
-        {/* Filters */}
+        {/*
+         * Filter & Sort
+         * Ketika filter berubah, currentPage direset ke 1 (lihat handler di atas)
+         * dan useGuns() akan refetch dengan params baru.
+         */}
         <AdvancedFilter
           search={search}
-          onSearch={setSearch}
+          onSearch={handleSearch}
           categories={categories}
           activeCategory={activeCategory}
-          onCategory={setActiveCategory}
+          onCategory={handleCategory}
           sortKey={sortKey}
           sortOrder={sortOrder}
-          onSort={({ key, order }) => { setSortKey(key); setSortOrder(order) }}
+          onSort={handleSort}
         />
 
-        {/* States */}
+        {/* Loading State */}
         {loading && (
           <div className="state-box">
             <Loader size={28} className="spin" />
-            <p>Loading products…</p>
+            <p>Loading products… (halaman {currentPage})</p>
           </div>
         )}
 
+        {/* Error State */}
         {!loading && error && !useLocal && (
           <div className="state-box state-box--error">
             <AlertCircle size={28} />
@@ -156,6 +246,7 @@ export default function Catalog({ onNavigate }) {
           </div>
         )}
 
+        {/* Empty State */}
         {!loading && filteredGuns.length === 0 && !error && (
           <div className="state-box">
             <PackageOpen size={28} />
@@ -163,7 +254,15 @@ export default function Catalog({ onNavigate }) {
           </div>
         )}
 
-        {/* Product grid */}
+        {/*
+         * Grid produk — menggunakan GunCard dengan lazy loading + share button.
+         *
+         * Setiap GunCard memiliki:
+         *   - Gambar dengan loading="lazy" (lazy load)
+         *   - Tombol share (share link)
+         *   - Tombol favorit
+         *   - Tombol edit/delete (admin)
+         */}
         {filteredGuns.length > 0 && (
           <ul className="stock">
             {filteredGuns.map((gun) => (
@@ -178,13 +277,37 @@ export default function Catalog({ onNavigate }) {
           </ul>
         )}
 
+        {/*
+         * PAGINASI:
+         * Komponen Pagination menampilkan tombol Prev/Next dan nomor halaman.
+         *
+         * Logic:
+         *   - canPrev: currentPage > 1
+         *   - canNext: pagination.hasMore (dari Supabase — ada data di halaman berikut?)
+         *   - Klik Prev: currentPage-- → useGuns refetch halaman sebelumnya
+         *   - Klik Next: currentPage++ → useGuns refetch halaman berikutnya
+         *
+         * Query Caching memastikan navigasi kembali ke halaman sebelumnya
+         * tidak memerlukan request API baru.
+         */}
+        {!useLocal && (filteredGuns.length > 0 || loading) && (
+          <Pagination
+            page={currentPage}
+            hasMore={pagination?.hasMore ?? false}
+            onPrev={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            onNext={() => setCurrentPage((p) => p + 1)}
+            loading={loading}
+          />
+        )}
+
+        {/* Notifikasi mode lokal */}
         {useLocal && (
           <p className="local-notice">
             Showing local catalog (server unavailable).{' '}
             <button
               type="button"
               className="link-btn"
-              onClick={() => { setUseLocal(false); refetch() }}
+              onClick={() => { setUseLocal(false); setCurrentPage(1); refetch() }}
             >
               Retry server
             </button>
@@ -192,7 +315,7 @@ export default function Catalog({ onNavigate }) {
         )}
       </section>
 
-      {/* Delete confirmation */}
+      {/* Modal konfirmasi hapus */}
       <ConfirmModal
         open={!!deleteTarget}
         title="Delete Product"

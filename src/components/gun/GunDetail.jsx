@@ -1,18 +1,25 @@
 import { useState } from 'react'
 import { ArrowLeft, Star, Send, Loader } from 'lucide-react'
 import FavoriteButton from '../common/FavoriteButton'
+import ShareButton from '../common/ShareButton'
 import { useReviews, useCreateReview } from '../../hooks/useReviews'
 import { getUserIdentifier } from '../../services/userService'
 import { formatPrice, averageRating } from '../../utils/helpers'
 
 /**
- * Full-screen product detail view.
+ * GunDetail — Tampilan detail lengkap satu produk.
+ *
+ * FITUR:
+ *   - Share Link: tombol berbagi URL produk ini. URL format: ?gunId={id}
+ *     Didukung Web Share API (mobile/PWA) atau fallback clipboard copy.
+ *   - Lazy load: gambar menggunakan loading="lazy" (browser-native)
+ *   - Reviews: menampilkan dan membuat ulasan produk dari Supabase
  *
  * @param {Object}   props
- * @param {Object}   props.gun       — product data
- * @param {Function} props.onBack    — return to catalog
- * @param {Function} [props.onEdit]  — navigate to edit page
- * @param {Function} [props.onDelete]— trigger delete flow
+ * @param {Object}   props.gun       — data produk
+ * @param {Function} props.onBack    — kembali ke catalog
+ * @param {Function} [props.onEdit]  — navigasi ke halaman edit
+ * @param {Function} [props.onDelete]— trigger alur hapus
  */
 export default function GunDetail({ gun, onBack, onEdit, onDelete }) {
   const imgSrc = gun.image_url || gun.image || '/guns/pistol.svg'
@@ -84,6 +91,15 @@ export default function GunDetail({ gun, onBack, onEdit, onDelete }) {
 
           <div className="detail-actions">
             <FavoriteButton gunId={gun.id || gun.name} />
+            {/*
+             * SHARE LINK di halaman detail:
+             * Ketika tombol share diklik, URL dengan format ?gunId={id} dibuat
+             * dan dibagikan melalui Web Share API atau disalin ke clipboard.
+             * Penerima link dapat langsung membuka halaman produk ini.
+             */}
+            {gun.id && !String(gun.id).startsWith('local-') && (
+              <ShareButton gun={gun} />
+            )}
             {onEdit && (
               <button type="button" className="btn btn--outline" onClick={() => onEdit(gun)}>
                 Edit

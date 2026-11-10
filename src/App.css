@@ -497,6 +497,97 @@
   transform: scale(1.08);
 }
 
+.card-act-btn--danger:hover {
+  background: #fff0f0;
+  border-color: #f87171;
+}
+
+/* ---------------------------------------------------------------------------
+ * Share Button — Tombol berbagi link produk
+ * share-btn-wrap: container relatif untuk tooltip
+ * share-btn--copied: state saat link berhasil disalin
+ * share-tooltip: feedback "Link disalin!" muncul di bawah tombol
+ * --------------------------------------------------------------------------- */
+.share-btn-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.share-btn {
+  color: var(--steel);
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.share-btn--copied {
+  color: #16a34a;
+  border-color: #16a34a;
+}
+
+.share-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: #111;
+  color: #fff;
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 20;
+  pointer-events: none;
+  animation: fadeInTooltip 0.15s ease;
+}
+
+.share-tooltip--error {
+  background: #dc2626;
+}
+
+@keyframes fadeInTooltip {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------------------------------------------------------------------------
+ * Pagination — Navigasi halaman produk
+ * pagination: container flex di tengah halaman
+ * pagination__btn: tombol prev/next
+ * pagination__info: indikator nomor halaman
+ * --------------------------------------------------------------------------- */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 0 8px;
+  margin-top: 8px;
+}
+
+.pagination__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 90px;
+  justify-content: center;
+}
+
+.pagination__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination__info {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--steel);
+  min-width: 80px;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
 .fav-btn {
   width: 34px;
   height: 34px;

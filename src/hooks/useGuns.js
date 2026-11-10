@@ -1,12 +1,18 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import gunService from '../services/gunService'
 
 // ---------------------------------------------------------------------------
-// useGuns — fetch the paginated / filtered product list from the API.
+// useGuns — Hook untuk mengambil daftar produk dengan dukungan:
+//   1. PAGINASI  : Parameter `page` dan `limit` untuk memotong data per halaman
+//   2. QUERY CACHING: Hasil fetch di-cache di queryCache.js sehingga navigasi
+//      ulang ke halaman yang sama tidak memerlukan request API baru
 //
-// Returns { guns, loading, error, pagination, refetch }.
-// When the API is unreachable the `error` string will be set and `guns`
-// will remain an empty array so the UI can show a proper error state.
+// CARA KERJA PAGINASI:
+//   - `page`  : Nomor halaman saat ini (default: 1)
+//   - `limit` : Jumlah item per halaman (default: 6)
+//   - `hasMore`: Boolean — apakah masih ada halaman berikutnya
+//
+// Returns { guns, loading, error, pagination, refetch }
 // ---------------------------------------------------------------------------
 
 export function useGuns(params = {}) {
@@ -15,15 +21,29 @@ export function useGuns(params = {}) {
   const [error, setError] = useState(null)
   const [pagination, setPagination] = useState(null)
 
-  // Serialise params so the effect re-runs when they change.
+  // Serialise params sebagai dependency key agar effect re-run saat params berubah.
+  // Menggunakan JSON.stringify memastikan perbandingan deep equality.
   const paramKey = JSON.stringify(params)
 
+  // Gunakan ref untuk menyimpan paramKey terbaru sehingga cleanup bisa
+  // membatalkan setState dari fetch yang sudah usang (race condition guard).
+  const latestParamKey = useRef(paramKey)
+
   const fetchGuns = useCallback(async () => {
+    // Tandai key yang sedang di-fetch agar kita bisa abaikan respons lama
+    const currentKey = JSON.stringify(params)
+    latestParamKey.current = currentKey
+
     try {
       setLoading(true)
       setError(null)
 
+      // gunService.getGuns() akan menggunakan cache jika tersedia.
+      // Jika cache miss, baru melakukan request ke Supabase API.
       const response = await gunService.getGuns(params)
+
+      // Abaikan respons jika params sudah berubah (pengguna berpindah halaman)
+      if (latestParamKey.current !== currentKey) return
 
       if (response.success) {
         setGuns(response.data || [])
@@ -32,10 +52,13 @@ export function useGuns(params = {}) {
         setError(response.message || 'Failed to fetch products.')
       }
     } catch (err) {
+      if (latestParamKey.current !== currentKey) return
       setError(err.message || 'An error occurred while fetching products.')
       setGuns([])
     } finally {
-      setLoading(false)
+      if (latestParamKey.current === currentKey) {
+        setLoading(false)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramKey])
@@ -48,9 +71,13 @@ export function useGuns(params = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// useGunById — fetch a single product by its UUID.
+// useGunById — Hook untuk mengambil detail satu produk berdasarkan UUID.
 //
-// Returns { gun, loading, error, refetch }.
+// QUERY CACHING:
+// Data detail produk di-cache dengan key "gun-{id}" selama 60 detik.
+// Navigasi kembali ke detail produk yang sama tidak akan trigger request baru.
+//
+// Returns { gun, loading, error, refetch }
 // ---------------------------------------------------------------------------
 
 export function useGunById(id) {
@@ -67,6 +94,7 @@ export function useGunById(id) {
       setLoading(true)
       setError(null)
 
+      // Cache key: "gun-{id}" — lihat queryCache.js dan gunService.js
       const response = await gunService.getGunById(id)
 
       if (response.success) {
