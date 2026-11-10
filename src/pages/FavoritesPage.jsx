@@ -91,7 +91,7 @@ export default function FavoritesPage({ onSelectGun, onNavigateCatalog }) {
         {!isLoading && favError && favoriteItems.length === 0 && (
           <div className="state-box state-box--error">
             <AlertCircle size={28} />
-            <p>{favError}</p>
+            <p>{typeof favError === 'string' ? favError : (favError?.message || 'Failed to load shortlist.')}</p>
             <button type="button" className="btn btn--outline" onClick={refetch}>
               Retry Connection
             </button>

@@ -230,7 +230,7 @@ export default function Catalog({ onNavigate }) {
         {!loading && error && !useLocal && (
           <div className="state-box state-box--error">
             <AlertCircle size={28} />
-            <p>{error}</p>
+            <p>{typeof error === 'string' ? error : (error?.message || 'Failed to load products.')}</p>
             <div className="state-box__actions">
               <button type="button" className="btn btn--outline" onClick={refetch}>
                 <RefreshCw size={16} /> Retry

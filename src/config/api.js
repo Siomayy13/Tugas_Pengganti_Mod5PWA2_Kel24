@@ -12,12 +12,15 @@ import axios from 'axios'
 // dan dibaca melalui import.meta.env (Vite env variables).
 // ---------------------------------------------------------------------------
 
-// Baca konfigurasi dari environment variables (.env)
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+// Baca konfigurasi dari environment variables (.env) dengan fallback ke Supabase individu
+const BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://adofvknhfnfqfbtxqiqy.supabase.co/rest/v1'
+
 const SUPABASE_KEY =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  ''
+  'sb_publishable_VkOo-2x5BmpCWjZ0OvS3uw_5s2G24Pk'
 
 // Deteksi apakah backend adalah Supabase berdasarkan URL atau keberadaan key
 const IS_SUPABASE =
@@ -87,17 +90,19 @@ apiClient.interceptors.response.use(
 
     if (error.response) {
       status = error.response.status
-      message =
-        error.response.data?.message ||
-        error.response.data?.msg ||
-        error.response.data?.error ||
-        error.response.data?.error_description ||
+      const data = error.response.data
+      const rawMsg =
+        data?.message ||
+        data?.msg ||
+        (typeof data?.error === 'string' ? data.error : data?.error?.message) ||
+        data?.error_description ||
         `Server error (${status})`
+      message = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg)
     } else if (error.request) {
       message =
         'Unable to reach the server. Check your connection and try again.'
     } else {
-      message = error.message || message
+      message = typeof error.message === 'string' ? error.message : String(error)
     }
 
     return Promise.reject({
