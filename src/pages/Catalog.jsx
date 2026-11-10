@@ -27,6 +27,9 @@ import {
 
 const ITEMS_PER_PAGE = 6
 
+// Daftar kategori permanen — selalu tampil lengkap dan tidak akan pernah hilang
+const CATEGORIES = ['All', 'Handgun', 'Rifle', 'Shotgun']
+
 export default function Catalog({ onNavigate }) {
   // ---- Fetch semua data produk dari Supabase (di-cache oleh queryCache) ----
   const { guns: apiGuns, loading, error, refetch } = useGuns({ limit: 100 })
@@ -48,14 +51,8 @@ export default function Catalog({ onNavigate }) {
   const [sortOrder, setSortOrder] = useState('asc')
   const [currentPage, setCurrentPage] = useState(1)
 
-  // Daftar kategori selalu diekstrak dari seluruh koleksi (tidak pernah hilang saat difilter)
-  const categories = useMemo(() => {
-    const extracted = extractCategories(allGuns)
-    // Pastikan kategori standar selalu ada jika belum ada di data
-    const defaults = ['All', 'Handgun', 'Rifle', 'Shotgun']
-    const combined = Array.from(new Set([...defaults, ...extracted]))
-    return combined
-  }, [allGuns])
+  // Gunakan kategori tetap agar pill Handgun, Rifle, Shotgun tidak pernah hilang
+  const categories = CATEGORIES
 
   // ---- 1. FILTERING & SORTING ----
   const filteredGuns = useMemo(() => {

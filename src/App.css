@@ -332,15 +332,22 @@
 }
 
 .pill:hover {
-  border-color: var(--ink);
-  color: var(--ink);
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
 }
 
 .pill--active {
-  background: var(--ink);
+  background: #0f172a;
   color: #fff;
-  border-color: var(--ink);
+  border-color: #0f172a;
   font-weight: 600;
+}
+
+.pill--active:hover {
+  background: #1e293b;
+  color: #fff;
+  border-color: #1e293b;
 }
 
 .adv-filter__sort {
